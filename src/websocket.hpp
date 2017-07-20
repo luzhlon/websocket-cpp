@@ -5,10 +5,16 @@
 #include <regex>
 #include <stdint.h>
 
-#include "../third_party/tstream/src/tstream.h"
+#include "tstream.hpp"
 
-#include "base64.h"
+#include "base64.hpp"
 #include "sha1.hpp"
+
+#ifdef _MSC_VER
+#define EXPORT __declspec(dllexport)
+#else
+#define EXPORT
+#endif
 
 namespace websocket {
 	enum OP_CODE {
@@ -141,33 +147,21 @@ namespace websocket {
 		uint8_t masking_key[4];
 	};
 
-	class WebSocketHandler {
+	class EXPORT WebSocketHandler {
 	public:
 		// Default as the server
-		WebSocketHandler(tstream&& ts) : _ts(move(ts)) {}
-		WebSocketHandler() { isServer(false); }
+		WebSocketHandler(tstream&& ts)
+            : _ts(move(ts)) { open(); }
+        // As the client, uncomplete
+		WebSocketHandler(const char *addr, uint16_t port) {}
+        // Move constructor
 		WebSocketHandler(WebSocketHandler&& other) = default;
 
 		bool isServer() { return _server; }
+        bool isBinary() { return _bin; }
+        // WebSocketHandler& isBinary(bool b) { _bin = b; return *this; }
 		// Set the handler to be server-point or client-point
-		WebSocketHandler& isServer(bool b) {
-			_server = b;
-			return *this;
-		}
-		// Open, make the connection
-		bool open() {
-			_state = STATE_CONNECTING;
-			// Receive the protocol header
-			readHeader();
-			// Find key and response
-			auto key = getKey();
-			if (!key.empty()) {
-				// response header
-				responseHeader(getResponseKey(key));
-				return _state = STATE_OPEN, true;
-			}
-			return _state = STATE_CLOSED, false;
-		}
+		WebSocketHandler& isServer(bool b) { _server = b; return *this; }
 		// Get the header
 		const string& header() { return _header; }
 		// Get the path from header
@@ -201,8 +195,14 @@ namespace websocket {
 				return _state = STATE_CLOSED, *this;
 			switch (_frame.getOpcode()) {
 			case OP_ADDITIONAL:
+				while (!_frame.FIN())
+					_frame.recv(_ts, _data);
 			case OP_TEXT:
+                _bin = false;
+				while (!_frame.FIN())
+					_frame.recv(_ts, _data);
 			case OP_BINARY:
+                _bin = true;
 				while (!_frame.FIN())
 					_frame.recv(_ts, _data);
 				break;
@@ -234,6 +234,20 @@ namespace websocket {
 		operator bool() { return STATE_OPEN == _state; }
 
 	private:
+		// Open, make the connection
+		bool open() {
+			_state = STATE_CONNECTING;
+			// Receive the protocol header
+			readHeader();
+			// Find key and response
+			auto key = getKey();
+			if (!key.empty()) {
+				// response header
+				responseHeader(getResponseKey(key));
+				return _state = STATE_OPEN, true;
+			}
+			return _state = STATE_CLOSED, false;
+		}
 		string getResponseKey(const string& key) {
 			static const char *GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 			SHA1 sha(key + GUID);
@@ -272,7 +286,8 @@ namespace websocket {
 		string _data;
 		Frame _frame;
 		READY_STATE _state = STATE_CLOSED;
-		bool _server = true;
+		bool _server = true;// as the server role? no mask
+        bool _bin = false;  // last message is binary?
 	};
 
 }
