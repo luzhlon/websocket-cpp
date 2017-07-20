@@ -8,7 +8,7 @@ C++实现的WebSocket协议，但采用的同步通信模型，不是异步的
 ## 服务端
 
 ```cpp
-#include "websocket.h"
+#include "websocket.hpp"
 
 int main {
     tstream::server ser(5333);
