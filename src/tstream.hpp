@@ -1,6 +1,7 @@
 ﻿#ifndef __TSTREAM_H__
 #define __TSTREAM_H__
 
+#include <string.h>
 #include <streambuf>
 #include <iostream>
 
@@ -9,12 +10,14 @@
 #pragma comment(lib, "ws2_32.lib")
 #define __INIT_SOCK_LIB ((tstream *)nullptr)->initsocklib()
 #define __CLOSE_SOCKET(S) ::closesocket(S), S = INVALID_SOCKET
+typedef int socklen_t;
 #else
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netdb.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <endian.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <arpa/inet.h>
@@ -24,6 +27,8 @@ typedef int SOCKET;
 #define SOCKET_ERROR    -1
 #define __INIT_SOCK_LIB
 #define __CLOSE_SOCKET(S) ::close(S), S = INVALID_SOCKET
+#define htonll(I) htobe64((I))
+#define ntohll(I) be64toh((I))
 //#pragma endregion
 #endif
 
@@ -43,7 +48,7 @@ struct tstream : public iostream {
     public:
         tcpbuf() {
             __INIT_SOCK_LIB;
-            _sock = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+            _sock = INVALID_SOCKET;
         }
         tcpbuf(SOCKET s) { _sock = s; }
         tcpbuf(tcpbuf&& other) {
@@ -53,6 +58,8 @@ struct tstream : public iostream {
         ~tcpbuf() override { close(); }
 
         bool connect(char *ip, unsigned short port) {
+            if (_sock == INVALID_SOCKET)
+                _sock = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
             sockaddr_in addr;
             memset(&addr, 0, sizeof(addr));
             addr.sin_addr.s_addr = inet_addr(ip);
@@ -65,6 +72,16 @@ struct tstream : public iostream {
 
         int recv(char *buf, size_t len) { return ::recv(_sock, buf, len, 0); }
         int send(const char *buf, size_t len) { return ::send(_sock, buf, len, 0); }
+
+        tcpbuf& operator=(tcpbuf&& buf) {
+            streambuf::operator=(buf);
+            close();
+            _sock = buf._sock;
+            buf._sock = INVALID_SOCKET;
+            return *this;
+        }
+
+        tcpbuf& operator=(tcpbuf& buf) = delete;
 
     protected:
         // Unbuffered get
@@ -102,18 +119,11 @@ struct tstream : public iostream {
             } while (need);
             return size;
         }
-        // flush
-        int sync() override {
-#if (defined _WIN32) || (defined _WIN64)
-            return 0;
-#else
-            return flush(_sock);
-#endif
-        }
 
     private:
-        SOCKET _sock;
+        friend class tstream;
 
+        SOCKET _sock;
     };
 
     struct server {
@@ -136,7 +146,9 @@ struct tstream : public iostream {
         bool bind(const char *addr, unsigned short port) {
             return bind(inet_addr(addr), port);
         }
-        bool bind(int port) { return bind(ADDR_ANY, port); }
+        bool bind(unsigned short port) {
+            return bind((unsigned long)INADDR_ANY, port);
+        }
         bool bind(unsigned long addr, unsigned short port) {
             sockaddr_in svraddr;
             svraddr.sin_family = AF_INET;
@@ -153,37 +165,43 @@ struct tstream : public iostream {
 
         tstream accept() {
             sockaddr_in cliaddr;
-            int addrlen = sizeof(cliaddr);
+            socklen_t addrlen = sizeof(cliaddr);
             return ::accept(sock,
                 (struct sockaddr*)&cliaddr, &addrlen);
         }
         int close() { return __CLOSE_SOCKET(sock); }
 
+    private:
         SOCKET sock = INVALID_SOCKET;
     };
 
-    tstream() : iostream(&_buf) {}
+    tstream() : iostream(&_buf) {
+        clear(badbit);
+    }
+    tstream(tstream& s) = delete;
     tstream(tstream&& s)
         : _buf(std::move(s._buf)), iostream(&_buf) {}
     tstream(SOCKET sock)
         : _buf(sock), iostream(&_buf) {
-        if (sock == INVALID_SOCKET)
-            setstate(ios_base::failbit);
+        clear(sock == INVALID_SOCKET ?  badbit : goodbit);
     }
     tstream(char *ip, unsigned short port)
         : tstream() { connect(ip, port); }
 
     bool connect(char *ip, unsigned short port) {
         if (_buf.connect(ip, port))
-            return clear(ios_base::goodbit), true;
-        return clear(ios_base::failbit), true;
+            return clear(goodbit), true;
+        return setstate(failbit), false;
     }
-
-    int close() { return _buf.close(); }
     // Raw 'send' function
     int send(const char *buf, size_t len) { return _buf.send(buf, len); }
     // Raw 'recv' function
     int recv(char *buf, size_t len) { return _buf.recv(buf, len); }
+    // close, maybe exists buffered data, so not set eofbit
+    int close() { return _buf.close(); }
+
+    tstream& operator=(tstream&& t) = default;
+    tstream& operator=(tstream& t) = delete;
 
     template <typename T>
     inline int recv2(T& t) { return recv((char *)&t, sizeof(T)); }

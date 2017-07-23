@@ -21,6 +21,7 @@
 #include <sstream>
 #include <iomanip>
 #include <fstream>
+#include <string.h>
 
 
 static const size_t BLOCK_INTS = 16;  /* number of 32bit integers per SHA1 block */
