@@ -1,35 +1,60 @@
 
-C++实现的WebSocket协议，但采用的同步通信模型，不是异步的
+## websocket-cpp
 
-## 依赖项目
+WebSocket协议的C++实现，多线程同步模型 Simple && Lightweight
 
-* [tstream](https://github.com/luzhlon/tstream)
+## 文档
 
-## 服务端
+* Wiki: https://github.com/luzhlon/websocket-cpp/wiki
+
+## 服务端示例
 
 ```cpp
 #include "websocket.hpp"
+using namespace websocket;
+```
 
-int main {
-    tstream::server ser(5333);
-    WebSocketHandler h = ser.accept();
-    if (h) {    // Open the connection successfully
+最简单的使用方法:
+
+```cpp
+WebSocketServer<WebSocketHandler> server("127.0.0.1", 2048);
+auto handler = server.accept();
+// receive data
+cout << handler.recv().data() << endl;
+// send data
+handler.send(handler.data());
+// close the websocket connection
+handler.close();
+```
+
+继承WebSocketHandler，重载onopen、onmessage、onclose等函数，调用WebSocketServer的run()函数，自动进行多线程处理
+
+```cpp
+class MyHandler : public WebSocketHandler {
+public:
+    static void onopen(MyHandler& h) {
+        cout << "OPEN: " << h.getHost() << endl;
         cout << "GET " << h.getPath() << endl;
         cout << "Host: " << h.getHost() << endl;
         cout << "Sec-WebSocket-Key: " << h.getKey() << endl;
         cout << "Sec-WebSocket-Protocol: " << h.getSubProtocol() << endl;
-        while (1) {
-            if (h.recv())
-                cout << h.data() << endl,
-                h.send(h.data());       // send string data
-                h.send(h.data(), true); // send binary data
-            getchar();
-        }
     }
+    // Received a message
+    static void onmessage(MyHandler& h) {
+        cout << h.data() << endl;
+        h.send(h.data());     // send a message to peer
+    }
+    static void onclose(MyHandler& h) {
+        cout << "CLOSED" << endl;
+    }
+};
+int main() {
+    WebSocketServer<MyHandler> server("127.0.0.1", 2048);
+    server.run();
     return 0;
 }
 ```
 
 ## 客户端
 
-未实现
+暂未实现
