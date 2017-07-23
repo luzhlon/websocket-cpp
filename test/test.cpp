@@ -2,7 +2,6 @@
 #include "../src/websocket.hpp"
 
 #include <string>
-#include <Windows.h>
 
 const char *opcodes[] = {
     "Additional",           // 0
@@ -18,14 +17,31 @@ const char *opcodes[] = {
 using namespace std;
 using namespace websocket;
 
-int main(int argc, char **argv) {
-    tstream::server ser(5333);
+class MyHandler : public WebSocketHandler {
+public:
+    static void onopen(MyHandler& h) {
+        cout << "OPEN: " << h.getHost() << endl;
+        cout << "GET " << h.getPath() << endl;
+        cout << "Host: " << h.getHost() << endl;
+        cout << "Sec-WebSocket-Key: " << h.getKey() << endl;
+        cout << "Sec-WebSocket-Protocol: " << h.getProtocol() << endl;
+    }
+    static void onmessage(MyHandler& h) {
+        cout << h.data() << endl;
+    }
+    static void onclose(MyHandler& h) {
+        cout << "CLOSED" << endl;
+    }
+};
+
+void test1() {
+    tstream::server ser("127.0.0.1", 5333);
     WebSocketHandler h = ser.accept();
     if (h) {
         cout << "GET " << h.getPath() << endl;
         cout << "Host: " << h.getHost() << endl;
         cout << "Sec-WebSocket-Key: " << h.getKey() << endl;
-        cout << "Sec-WebSocket-Protocol: " << h.getSubProtocol() << endl;
+        cout << "Sec-WebSocket-Protocol: " << h.getProtocol() << endl;
         while (1) {
             if (h.recv())
                 cout << h.data() << endl,
@@ -33,5 +49,10 @@ int main(int argc, char **argv) {
             getchar();
         }
     }
+}
+
+int main(int argc, char **argv) {
+    WebSocketServer<MyHandler> ser("127.0.0.1", 5333);
+    ser.run();
     return 0;
 }
